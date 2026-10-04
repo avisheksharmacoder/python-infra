@@ -1,0 +1,90 @@
+# Byte-compiled / optimized / C-extension files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# Application Logs & Telemetry
+logs/
+*.log
+*.jsonl
+v1/logs/
+app.jsonl
+
+# Benchmarking & Load Generation Outputs
+wrk_output/
+*.prof
+*.out
+
+# Database & Persistent Volumes
+pgdata/
+*.sqlite
+*.sqlite3
+*.db
+*.dump
+
+# Docker local overrides
+docker-compose.override.yml
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+
+# Type Checking & Linters
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# IDE & Editor Artifacts
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.sublime-workspace
+*.sublime-project
+
+# OS Artifacts
+.DS_Store
+Thumbs.db
