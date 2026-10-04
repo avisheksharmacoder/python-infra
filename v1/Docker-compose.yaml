@@ -1,0 +1,56 @@
+services:
+  db:
+    image: postgres:latest
+    container_name: pauf_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: pauf_db
+    command: >
+      postgres
+      -c shared_preload_libraries=pg_stat_statements
+      -c pg_stat_statements.track=all
+      -c pg_stat_statements.max=10000
+      -c max_connections=100
+      -c shared_buffers=256MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pauf_db"]
+      interval: 2s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - pgdata:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+    networks:
+      - pauf_network
+
+  backend:
+    container_name: pauf_backend
+    build:
+      context: .
+      dockerfile: Docker.backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db:5432/pauf_db
+      SYNC_DATABASE_URL: postgresql+psycopg2://postgres:postgres@db:5432/pauf_db
+      LOG_LEVEL: INFO
+      LOG_FILE_PATH: /app/logs/app.jsonl
+    volumes:
+      - .:/app
+      - ./logs:/app/logs
+    ports:
+      - "8000:8000"
+    networks:
+      - pauf_network
+
+volumes:
+  pgdata:
+
+networks:
+  pauf_network:
+    driver: bridge
