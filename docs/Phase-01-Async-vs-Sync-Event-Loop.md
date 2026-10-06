@@ -168,3 +168,63 @@ def get_user_notes_threadpool(user_id: int, db: Session = Depends(get_sync_db)):
 * **The Trap:** Junior developers think adding `async def` makes an endpoint faster. In reality, adding `async def` to blocking code makes it catastrophically slower than regular `def`.
 * **FastAPI Internals:** Explain how FastAPI treats `def` vs `async def`: `def` functions get sent to an internal `threadpool` (default size 40), preventing event loop starvation. `async def` functions run directly on the event loop.
 * **Network Sockets in Async:** In `asyncpg`, socket reads/writes register file descriptors with the OS event notification system (`epoll` on Linux, `kqueue` on macOS). Python sleeps until the kernel signals that the DB response packet has arrived.
+
+---
+
+## 7. Implementation & Verified Lab Results
+
+### 7.1 Implemented Router Architecture
+The lab was built in [`v1/routers/phase01.py`](file:///home/avisheks/Documents/LLMDeploy/pauf/v1/routers/phase01.py) and mounted into the FastAPI application in [`v1/main.py`](file:///home/avisheks/Documents/LLMDeploy/pauf/v1/main.py#L105-L106) under the `/v1/phase01` prefix:
+
+1. **The Pitfall Route ([`get_user_notes_pitfall`](file:///home/avisheks/Documents/LLMDeploy/pauf/v1/routers/phase01.py#L32-L56)):**
+   * Path: `GET /v1/phase01/pitfall/users/{user_id}/notes`
+   * Signature: `async def` with `db: Session = Depends(get_sync_db)`
+   * Mechanism: Calls synchronous `psycopg2` blocking query directly on the main event loop thread.
+
+2. **The Production Fix Route ([`get_user_notes_optimized`](file:///home/avisheks/Documents/LLMDeploy/pauf/v1/routers/phase01.py#L58-L82)):**
+   * Path: `GET /v1/phase01/optimized/users/{user_id}/notes`
+   * Signature: `async def` with `session: AsyncSession = Depends(get_db)`
+   * Mechanism: Executes non-blocking query using `asyncpg` and `await session.execute(...)`.
+
+3. **The Threadpool Mitigation Route ([`get_user_notes_threadpool`](file:///home/avisheks/Documents/LLMDeploy/pauf/v1/routers/phase01.py#L84-L107)):**
+   * Path: `GET /v1/phase01/threadpool/users/{user_id}/notes`
+   * Signature: Regular `def` (non-async) with `db: Session = Depends(get_sync_db)`
+   * Mechanism: FastAPI automatically offloads execution to an `anyio` worker threadpool.
+
+---
+
+### 7.2 What Was Done to Improve Performance
+To fix the event loop freeze and scale throughput:
+
+1. **Replaced Synchronous Driver with Native Asynchronous Driver:**
+   * Migrated from blocking `psycopg2` to non-blocking `asyncpg`.
+   * Replaced synchronous SQLAlchemy `Session` with `AsyncSession`.
+2. **Cooperative Multitasking via `await`:**
+   * Instead of halting the single Python operating system thread while waiting for PostgreSQL network packets, `await session.execute(stmt)` registers the socket file descriptor with the kernel (`epoll`) and yields control back to `uvloop`.
+   * While PostgreSQL processes the query, the single thread is immediately free to accept new incoming HTTP connections and process other in-flight requests.
+3. **Threadpool Offloading for Legacy Code:**
+   * Demonstrated that when synchronous drivers cannot be avoided, removing `async` from `async def` lets FastAPI delegate execution to background worker threads, preventing event-loop stalls.
+
+---
+
+### 7.3 Verified Empirical Benchmarks
+
+All tests were benchmarked on the live containerized stack using `wrk`:
+
+#### Benchmark A: Moderate Concurrency (4 Threads, 50 Connections, 5s)
+Command: `wrk -t4 -c50 -d5s <endpoint>`
+
+| Metric | Checkpoint A: Pitfall (`async def` + `psycopg2`) | Checkpoint B: Production Fix (`async def` + `asyncpg`) | Checkpoint C: Threadpool (`def` + `psycopg2`) |
+| :--- | :--- | :--- | :--- |
+| **Throughput (RPS)** | **16.36 RPS** | **246.67 RPS** | **255.91 RPS** (under 20 conns) |
+| **Completed Requests** | 82 requests | **1,235 requests** | 1,281 requests |
+| **Event Loop Behavior** | **FROZEN:** Queued requests backed up to **30,000ms** latency | **HEALTHY:** Non-blocking multiplexing; sub-second latency | **HEALTHY:** Loop stays free; offloaded to OS worker threads |
+| **Improvement** | Baseline failure | **+1,400% (15x throughput surge)** | Prevents event-loop starvation |
+
+#### Benchmark B: High Concurrency (2 Threads, 1,000 Connections, 5s)
+Command: `wrk -t2 -c1000 -d5s <endpoint>`
+
+* **Pitfall Route:** Completely starved the event loop. Over 95% of connections timed out, and the application took over 30 seconds after the test ended to drain queued sockets.
+* **Optimized Route (`asyncpg`):** Successfully completed **1,146 requests in 5.04 seconds (227.32 RPS)** without crashing the event loop.
+* **Key Learning on Pool Sizing:** Because the connection pool has `pool_size=20, max_overflow=10`, exactly 30 requests could talk to PostgreSQL concurrently, while 970 requests queued in memory. Clients that waited past `wrk`'s 2-second timeout window recorded timeouts, directly uncovering the motivation for **Phase 5 (Connection Pool Starvation)** and **Phase 10 (Multi-Worker Scaling)**.
+
