@@ -2,7 +2,7 @@ import asyncio
 import time
 import random
 from datetime import datetime, timezone, timedelta
-from sqlalchemy import select, func, insert, delete
+from sqlalchemy import select, func, insert, delete, text
 from loguru import logger
 
 try:
@@ -42,11 +42,8 @@ async def seed_database(reset: bool = False):
         note_count = (await conn.execute(select(func.count(Note.id)))).scalar() or 0
 
         if reset and (user_count > 0 or note_count > 0):
-            logger.warning("Reset flag detected. Purging existing tables...")
-            await conn.execute(delete(note_tags))
-            await conn.execute(delete(Note))
-            await conn.execute(delete(Tag))
-            await conn.execute(delete(User))
+            logger.warning("Reset flag detected. Truncating tables and resetting identity sequences...")
+            await conn.execute(text("TRUNCATE TABLE note_tags, notes, tags, users RESTART IDENTITY CASCADE;"))
             user_count = 0
             note_count = 0
 

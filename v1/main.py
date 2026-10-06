@@ -10,10 +10,12 @@ try:
     from .logger import setup_logging
     from .database import init_db, close_db
     from .routers.base import router as base_router
+    from .routers.phase01 import router as phase01_router
 except ImportError:
     from logger import setup_logging
     from database import init_db, close_db
     from routers.base import router as base_router
+    from routers.phase01 import router as phase01_router
 
 # 1. Lifespan Context Manager
 @asynccontextmanager
@@ -104,5 +106,5 @@ from fastapi.responses import RedirectResponse
 async def root_dashboard():
     return RedirectResponse(url="/v1/dashboard")
 
-# Placeholder for future phase router mounts:
-# app.include_router(phase01_router, prefix="/v1/phase01", tags=["Phase 01"])
+# Mount Phase Routers:
+app.include_router(phase01_router, prefix="/v1/phase01", tags=["Phase 01: Async vs Sync"])
